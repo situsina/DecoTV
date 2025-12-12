@@ -4,7 +4,7 @@
  */
 
 // 版本常量
-const CURRENT_SEMANTIC_VERSION = '0.7.0';
+const CURRENT_SEMANTIC_VERSION = '0.8.0';
 export const CURRENT_VERSION = CURRENT_SEMANTIC_VERSION;
 
 const DEFAULT_UPDATE_REPO = 'Decohererk/DecoTV';
@@ -172,7 +172,7 @@ export async function getCurrentVersionInfo(): Promise<VersionInfo> {
     };
   } catch (error) {
     // 降级处理：使用 VERSION.txt 的默认值
-    const timestamp = '20251006163200';
+    const timestamp = '20251212140536';
     return {
       version: CURRENT_VERSION,
       timestamp,
@@ -228,6 +228,7 @@ async function fetchRemoteSemanticVersion(): Promise<string | null> {
 export async function checkForUpdates(currentTimestamp: string): Promise<{
   hasUpdate: boolean;
   remoteVersion?: RemoteVersionInfo;
+  checkFailed?: boolean;
 }> {
   try {
     // 同时获取远程时间戳和语义版本号
@@ -275,9 +276,10 @@ export async function checkForUpdates(currentTimestamp: string): Promise<{
       hasUpdate: false,
     };
   } catch (error) {
-    // 静默处理错误
+    // 标记检查失败
     return {
       hasUpdate: false,
+      checkFailed: true,
     };
   }
 }
