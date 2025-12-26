@@ -43,7 +43,7 @@ import { GripVertical } from 'lucide-react';
 import { Suspense, useCallback, useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 
-import { AdminConfig, AdminConfigResult } from '@/lib/admin.types';
+import { AdminConfig } from '@/lib/admin.types';
 import { getAuthInfoFromBrowserCookie } from '@/lib/auth';
 
 import DataMigration from '@/components/DataMigration';
@@ -184,7 +184,7 @@ const AlertModal = ({
 
   return createPortal(
     <div
-      className={`fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4 transition-opacity duration-200 ${
+      className={`fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4 transition-opacity duration-200 ${
         isVisible ? 'opacity-100' : 'opacity-0'
       }`}
       onClick={onClose}
@@ -1468,7 +1468,7 @@ const UserConfig = ({ config, role, refreshConfig }: UserConfigProps) => {
         selectedUser &&
         createPortal(
           <div
-            className='fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4'
+            className='fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4'
             onClick={() => {
               setShowConfigureApisModal(false);
               setSelectedUser(null);
@@ -1646,7 +1646,7 @@ const UserConfig = ({ config, role, refreshConfig }: UserConfigProps) => {
       {showAddUserGroupForm &&
         createPortal(
           <div
-            className='fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4'
+            className='fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4'
             onClick={() => {
               setShowAddUserGroupForm(false);
               setNewUserGroup({ name: '', enabledApis: [] });
@@ -1826,7 +1826,7 @@ const UserConfig = ({ config, role, refreshConfig }: UserConfigProps) => {
         editingUserGroup &&
         createPortal(
           <div
-            className='fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4'
+            className='fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4'
             onClick={() => {
               setShowEditUserGroupForm(false);
               setEditingUserGroup(null);
@@ -1991,7 +1991,7 @@ const UserConfig = ({ config, role, refreshConfig }: UserConfigProps) => {
         selectedUserForGroup &&
         createPortal(
           <div
-            className='fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4'
+            className='fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4'
             onClick={() => {
               setShowConfigureUserGroupModal(false);
               setSelectedUserForGroup(null);
@@ -2130,7 +2130,7 @@ const UserConfig = ({ config, role, refreshConfig }: UserConfigProps) => {
         deletingUserGroup &&
         createPortal(
           <div
-            className='fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4'
+            className='fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4'
             onClick={() => {
               setShowDeleteUserGroupModal(false);
               setDeletingUserGroup(null);
@@ -2291,7 +2291,7 @@ const UserConfig = ({ config, role, refreshConfig }: UserConfigProps) => {
         deletingUser &&
         createPortal(
           <div
-            className='fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4'
+            className='fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4'
             onClick={() => {
               setShowDeleteUserModal(false);
               setDeletingUser(null);
@@ -2384,7 +2384,7 @@ const UserConfig = ({ config, role, refreshConfig }: UserConfigProps) => {
       {showBatchUserGroupModal &&
         createPortal(
           <div
-            className='fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4'
+            className='fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4'
             onClick={() => {
               setShowBatchUserGroupModal(false);
               setSelectedUserGroup('');
@@ -4208,7 +4208,7 @@ const VideoSourceConfig = ({
       {showValidationModal &&
         createPortal(
           <div
-            className='fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50'
+            className='fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50'
             onClick={() => setShowValidationModal(false)}
           >
             <div
@@ -4282,7 +4282,7 @@ const VideoSourceConfig = ({
       {confirmModal.isOpen &&
         createPortal(
           <div
-            className='fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4'
+            className='fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4'
             onClick={confirmModal.onCancel}
           >
             <div
@@ -6213,6 +6213,7 @@ function AdminPageClient() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [role, setRole] = useState<'owner' | 'admin' | null>(null);
+  const [storageMode, setStorageMode] = useState<'cloud' | 'local'>('cloud'); // 存储模式
   const [showResetConfigModal, setShowResetConfigModal] = useState(false);
   const [expandedTabs, setExpandedTabs] = useState<{ [key: string]: boolean }>({
     userConfig: false,
@@ -6239,34 +6240,88 @@ function AdminPageClient() {
   const [isRefreshingJar, setIsRefreshingJar] = useState(false);
   const [isCheckingJar, setIsCheckingJar] = useState(false);
 
-  // 获取管理员配置
-  // showLoading 用于控制是否在请求期间显示整体加载骨架。
-  const fetchConfig = useCallback(async (showLoading = false) => {
+  // localStorage 键名常量
+  const LOCAL_CONFIG_KEY = 'decotv_admin_config';
+
+  // 从 localStorage 读取配置
+  const loadLocalConfig = useCallback((): AdminConfig | null => {
     try {
-      if (showLoading) {
-        setLoading(true);
+      const stored = localStorage.getItem(LOCAL_CONFIG_KEY);
+      if (stored) {
+        return JSON.parse(stored) as AdminConfig;
       }
+    } catch (e) {
+      console.error('读取本地配置失败:', e);
+    }
+    return null;
+  }, []);
 
-      const response = await fetch(`/api/admin/config`);
-
-      if (!response.ok) {
-        const data = (await response.json()) as any;
-        throw new Error(`获取配置失败: ${data.error}`);
-      }
-
-      const data = (await response.json()) as AdminConfigResult;
-      setConfig(data.Config);
-      setRole(data.Role);
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : '获取配置失败';
-      showError(msg, showAlert);
-      setError(msg);
-    } finally {
-      if (showLoading) {
-        setLoading(false);
-      }
+  // 保存配置到 localStorage
+  const saveLocalConfig = useCallback((configToSave: AdminConfig) => {
+    try {
+      localStorage.setItem(LOCAL_CONFIG_KEY, JSON.stringify(configToSave));
+      return true;
+    } catch (e) {
+      console.error('保存本地配置失败:', e);
+      return false;
     }
   }, []);
+
+  // 获取管理员配置
+  // showLoading 用于控制是否在请求期间显示整体加载骨架。
+  const fetchConfig = useCallback(
+    async (showLoading = false) => {
+      try {
+        if (showLoading) {
+          setLoading(true);
+        }
+
+        const response = await fetch(`/api/admin/config`);
+        const data = await response.json();
+
+        if (!response.ok) {
+          throw new Error(`获取配置失败: ${data.error || response.statusText}`);
+        }
+
+        // 检查存储模式
+        const mode = data.storageMode || 'cloud';
+        setStorageMode(mode);
+
+        let finalConfig = data.Config;
+
+        // 如果是本地模式，尝试从 localStorage 读取并合并配置
+        if (mode === 'local') {
+          const localConfig = loadLocalConfig();
+          if (localConfig) {
+            // 用 localStorage 中的配置覆盖 API 返回的默认配置
+            finalConfig = localConfig;
+          }
+        }
+
+        setConfig(finalConfig);
+        setRole(data.Role);
+        // 成功时清除之前的错误状态
+        setError(null);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : '获取配置失败';
+        console.error('Admin config fetch error:', err);
+        showError(msg, showAlert);
+        setError(msg);
+      } finally {
+        if (showLoading) {
+          setLoading(false);
+        }
+      }
+    },
+    [loadLocalConfig],
+  );
+
+  // 当配置变化且是本地模式时，自动同步到 localStorage
+  useEffect(() => {
+    if (storageMode === 'local' && config) {
+      saveLocalConfig(config);
+    }
+  }, [config, storageMode, saveLocalConfig]);
 
   useEffect(() => {
     // 首次加载时显示骨架
@@ -6481,14 +6536,73 @@ function AdminPageClient() {
   }
 
   if (error) {
-    // 错误已通过弹窗展示，此处直接返回空
-    return null;
+    // 显示错误信息，而不是返回空白
+    return (
+      <PageLayout activePath='/admin'>
+        <div className='px-2 sm:px-10 py-4 sm:py-8'>
+          <div className='max-w-[95%] mx-auto'>
+            <h1 className='text-2xl font-bold text-gray-900 dark:text-gray-100 mb-8'>
+              管理员设置
+            </h1>
+            <div className='p-6 bg-red-50 dark:bg-red-900/20 rounded-lg border border-red-200 dark:border-red-800'>
+              <div className='flex items-start gap-3'>
+                <AlertCircle className='w-6 h-6 text-red-600 dark:text-red-400 flex-shrink-0 mt-0.5' />
+                <div className='flex-1'>
+                  <h3 className='text-lg font-semibold text-red-800 dark:text-red-300 mb-2'>
+                    加载失败
+                  </h3>
+                  <p className='text-red-700 dark:text-red-400 mb-4'>{error}</p>
+                  <div className='text-sm text-red-600 dark:text-red-500 mb-4'>
+                    <p className='mb-2'>可能的原因：</p>
+                    <ul className='list-disc list-inside space-y-1'>
+                      <li>数据库连接失败（请检查 Redis/Upstash 配置）</li>
+                      <li>权限不足（需要 owner 或 admin 角色）</li>
+                      <li>网络连接问题</li>
+                    </ul>
+                  </div>
+                  <button
+                    onClick={() => {
+                      setError(null);
+                      fetchConfig(true);
+                    }}
+                    className={buttonStyles.danger}
+                  >
+                    重试
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </PageLayout>
+    );
   }
 
   return (
     <PageLayout activePath='/admin'>
       <div className='px-2 sm:px-10 py-4 sm:py-8'>
         <div className='max-w-[95%] mx-auto'>
+          {/* 本地模式警告提示 */}
+          {storageMode === 'local' && (
+            <div className='mb-6 p-4 bg-yellow-50 dark:bg-yellow-900/20 rounded-lg border border-yellow-200 dark:border-yellow-800'>
+              <div className='flex items-start gap-3'>
+                <AlertTriangle className='w-5 h-5 text-yellow-600 dark:text-yellow-400 flex-shrink-0 mt-0.5' />
+                <div className='flex-1'>
+                  <h4 className='text-sm font-semibold text-yellow-800 dark:text-yellow-300 mb-1'>
+                    本地存储模式
+                  </h4>
+                  <p className='text-sm text-yellow-700 dark:text-yellow-400'>
+                    未检测到云端数据库（Redis/Upstash），当前配置将仅保存在您的浏览器缓存中。
+                    <span className='font-medium'>
+                      清除浏览器数据后配置将丢失。
+                    </span>
+                    如需持久化存储，请配置 Redis 或 Upstash 数据库。
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* 标题 + 重置配置按钮 */}
           <div className='flex items-center gap-2 mb-8'>
             <h1 className='text-2xl font-bold text-gray-900 dark:text-gray-100'>
@@ -7171,7 +7285,7 @@ function AdminPageClient() {
       {showResetConfigModal &&
         createPortal(
           <div
-            className='fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4'
+            className='fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4'
             onClick={() => setShowResetConfigModal(false)}
           >
             <div
