@@ -1,22 +1,19 @@
 import { NextRequest, NextResponse } from 'next/server';
 
-import { getAuthInfoFromCookie, verifyApiAuth } from '@/lib/auth';
+import { verifyApiAuth } from '@/lib/auth';
 import { buildCategoryTree } from '@/lib/category-tree';
 import { getConfig } from '@/lib/config';
 
 export const runtime = 'nodejs';
 
 export async function GET(request: NextRequest) {
-  const authResult = verifyApiAuth(request);
+  const authResult = await verifyApiAuth(request);
   if (!authResult.isValid) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  const authInfo = getAuthInfoFromCookie(request);
   const username =
-    authResult.username ||
-    authInfo?.username ||
-    (authResult.isLocalMode ? '__local__' : '');
+    authResult.username || (authResult.isLocalMode ? '__local__' : '');
 
   if (!username) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });

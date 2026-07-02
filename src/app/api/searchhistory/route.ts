@@ -2,7 +2,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 
-import { getAuthInfoFromCookie, verifyApiAuth } from '@/lib/auth';
+import { verifyApiAuth } from '@/lib/auth';
 import { getConfig } from '@/lib/config';
 import { db } from '@/lib/db';
 
@@ -14,16 +14,13 @@ const HISTORY_LIMIT = 20;
 async function resolveUsername(
   request: NextRequest,
 ): Promise<{ username: string } | NextResponse> {
-  const authResult = verifyApiAuth(request);
+  const authResult = await verifyApiAuth(request);
   if (!authResult.isValid) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  const authInfo = getAuthInfoFromCookie(request);
   const username =
-    authResult.username ||
-    authInfo?.username ||
-    (authResult.isLocalMode ? '__local__' : '');
+    authResult.username || (authResult.isLocalMode ? '__local__' : '');
 
   if (!username) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });

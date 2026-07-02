@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 
-import { getAuthInfoFromCookie, verifyApiAuth } from '@/lib/auth';
+import { verifyApiAuth } from '@/lib/auth';
 import { getAvailableApiSites, getConfig } from '@/lib/config';
 import {
   buildFilterProxyUrl,
@@ -13,14 +13,13 @@ import { isLikelyHlsUrl } from '@/lib/player/hls-url';
 export const runtime = 'nodejs';
 
 export async function GET(request: NextRequest) {
-  const authResult = verifyApiAuth(request);
+  const authResult = await verifyApiAuth(request);
   if (!authResult.isValid) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  const authInfo = getAuthInfoFromCookie(request);
   const username =
-    authInfo?.username || (authResult.isLocalMode ? '__local__' : '');
+    authResult.username || (authResult.isLocalMode ? '__local__' : '');
   const { searchParams } = new URL(request.url);
   const rawUrl = (searchParams.get('url') || '').trim();
   const source = (searchParams.get('source') || '').trim();

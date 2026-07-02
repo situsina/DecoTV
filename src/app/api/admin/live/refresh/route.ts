@@ -3,7 +3,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 import { persistAdminConfigMutation } from '@/lib/admin-config-mutation';
-import { getAuthInfoFromCookie } from '@/lib/auth';
+import { verifyApiAuth } from '@/lib/auth';
 import { getConfig } from '@/lib/config';
 import { refreshLiveChannels } from '@/lib/live';
 
@@ -12,8 +12,12 @@ export const runtime = 'nodejs';
 export async function POST(request: NextRequest) {
   try {
     // 权限检查
-    const authInfo = getAuthInfoFromCookie(request);
-    const username = authInfo?.username;
+    const authResult = await verifyApiAuth(request);
+    if (!authResult.isValid || !authResult.username) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    const username = authResult.username;
     const config = await getConfig();
     if (username !== process.env.USERNAME) {
       // 管理员

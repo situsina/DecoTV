@@ -3,9 +3,11 @@ import { NextRequest, NextResponse } from 'next/server';
 
 import {
   AUTH_COOKIE_NAME,
+  AUTH_META_COOKIE_NAME,
   getAuthCookieClearOptions,
   getAuthCookieExpires,
   getAuthCookieOptions,
+  getAuthMetaCookieOptions,
 } from '@/lib/auth-cookie';
 import { isPublicMode } from '@/lib/auth-mode';
 import { getConfig } from '@/lib/config';
@@ -14,7 +16,6 @@ import { getEffectiveRequestOrigin } from '@/lib/request-protocol';
 
 export const runtime = 'nodejs';
 
-// 读取存储类型环境变量，默认 localstorage
 const STORAGE_TYPE =
   (process.env.NEXT_PUBLIC_STORAGE_TYPE as
     | 'localstorage'
@@ -37,62 +38,88 @@ function withCors(response: NextResponse, req: NextRequest): NextResponse {
   return response;
 }
 
-// 生成签名
 async function generateSignature(
   data: string,
   secret: string,
 ): Promise<string> {
   const encoder = new TextEncoder();
-  const keyData = encoder.encode(secret);
-  const messageData = encoder.encode(data);
-
-  // 导入密钥
   const key = await crypto.subtle.importKey(
     'raw',
-    keyData,
+    encoder.encode(secret),
     { name: 'HMAC', hash: 'SHA-256' },
     false,
     ['sign'],
   );
+  const signature = await crypto.subtle.sign('HMAC', key, encoder.encode(data));
 
-  // 生成签名
-  const signature = await crypto.subtle.sign('HMAC', key, messageData);
-
-  // 转换为十六进制字符串
   return Array.from(new Uint8Array(signature))
     .map((b) => b.toString(16).padStart(2, '0'))
     .join('');
 }
 
-// 生成认证Cookie（带签名）
 async function generateAuthCookie(
   username?: string,
-  password?: string,
   role?: 'owner' | 'admin' | 'user',
-  includePassword = false,
 ): Promise<string> {
   const authData: {
     role: 'owner' | 'admin' | 'user';
-    password?: string;
     username?: string;
     signature?: string;
     timestamp?: number;
   } = { role: role || 'user' };
 
-  // 只在需要时包含 password
-  if (includePassword && password) {
-    authData.password = password;
-  }
-
   if (username && process.env.PASSWORD) {
     authData.username = username;
-    // 使用密码作为密钥对用户名进行签名
-    const signature = await generateSignature(username, process.env.PASSWORD);
-    authData.signature = signature;
-    authData.timestamp = Date.now(); // 添加时间戳防重放攻击
+    authData.signature = await generateSignature(
+      `${username}:${authData.role}`,
+      process.env.PASSWORD,
+    );
+    authData.timestamp = Date.now();
   }
 
   return encodeURIComponent(JSON.stringify(authData));
+}
+
+function generateAuthMetaCookie(
+  username?: string,
+  role?: 'owner' | 'admin' | 'user',
+): string {
+  return encodeURIComponent(
+    JSON.stringify({
+      username,
+      role: role || 'user',
+      timestamp: Date.now(),
+    }),
+  );
+}
+
+function setAuthCookies(
+  response: NextResponse,
+  req: NextRequest,
+  cookieValue: string,
+  metaCookieValue: string,
+) {
+  const expires = getAuthCookieExpires();
+
+  response.cookies.set(
+    AUTH_COOKIE_NAME,
+    cookieValue,
+    getAuthCookieOptions(req, expires),
+  );
+  response.cookies.set(
+    AUTH_META_COOKIE_NAME,
+    metaCookieValue,
+    getAuthMetaCookieOptions(req, expires),
+  );
+}
+
+function clearAuthCookies(response: NextResponse, req: NextRequest) {
+  response.cookies.set(AUTH_COOKIE_NAME, '', getAuthCookieClearOptions(req));
+  response.cookies.set(
+    AUTH_META_COOKIE_NAME,
+    '',
+    getAuthCookieClearOptions(req),
+  );
 }
 
 export async function POST(req: NextRequest) {
@@ -101,21 +128,12 @@ export async function POST(req: NextRequest) {
       return withCors(NextResponse.json({ ok: true, mode: 'public' }), req);
     }
 
-    // 本地 / localStorage 模式——仅校验固定密码
     if (STORAGE_TYPE === 'localstorage') {
       const envPassword = process.env.PASSWORD;
 
-      // 未配置 PASSWORD 时直接放行
       if (!envPassword) {
         const response = NextResponse.json({ ok: true });
-
-        // 清除可能存在的认证cookie
-        response.cookies.set(
-          AUTH_COOKIE_NAME,
-          '',
-          getAuthCookieClearOptions(req),
-        );
-
+        clearAuthCookies(response, req);
         return withCors(response, req);
       }
 
@@ -131,26 +149,17 @@ export async function POST(req: NextRequest) {
         );
       }
 
-      // 验证成功，设置认证cookie
       const response = NextResponse.json({ ok: true });
-      const cookieValue = await generateAuthCookie(
-        undefined,
-        password,
-        'owner',
-        true,
-      ); // localstorage 模式包含 password
-      const expires = getAuthCookieExpires();
-
-      response.cookies.set(
-        AUTH_COOKIE_NAME,
-        cookieValue,
-        getAuthCookieOptions(req, expires),
+      setAuthCookies(
+        response,
+        req,
+        await generateAuthCookie('__local__', 'owner'),
+        generateAuthMetaCookie('__local__', 'owner'),
       );
 
       return withCors(response, req);
     }
 
-    // 数据库 / redis 模式——校验用户名并尝试连接数据库
     const { username, password } = await req.json();
 
     if (!username || typeof username !== 'string') {
@@ -160,29 +169,22 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: '密码不能为空' }, { status: 400 });
     }
 
-    // 可能是站长，直接读环境变量
     if (
       username === process.env.USERNAME &&
       password === process.env.PASSWORD
     ) {
-      // 验证成功，设置认证cookie
       const response = NextResponse.json({ ok: true });
-      const cookieValue = await generateAuthCookie(
-        username,
-        password,
-        'owner',
-        false,
-      ); // 数据库模式不包含 password
-      const expires = getAuthCookieExpires();
-
-      response.cookies.set(
-        AUTH_COOKIE_NAME,
-        cookieValue,
-        getAuthCookieOptions(req, expires),
+      setAuthCookies(
+        response,
+        req,
+        await generateAuthCookie(username, 'owner'),
+        generateAuthMetaCookie(username, 'owner'),
       );
 
       return withCors(response, req);
-    } else if (username === process.env.USERNAME) {
+    }
+
+    if (username === process.env.USERNAME) {
       return NextResponse.json({ error: '用户名或密码错误' }, { status: 401 });
     }
 
@@ -192,7 +194,6 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: '用户被封禁' }, { status: 401 });
     }
 
-    // 校验用户密码
     try {
       const pass = await db.verifyUser(username, password);
       if (!pass) {
@@ -202,20 +203,12 @@ export async function POST(req: NextRequest) {
         );
       }
 
-      // 验证成功，设置认证cookie
       const response = NextResponse.json({ ok: true });
-      const cookieValue = await generateAuthCookie(
-        username,
-        password,
-        user?.role || 'user',
-        false,
-      ); // 数据库模式不包含 password
-      const expires = getAuthCookieExpires();
-
-      response.cookies.set(
-        AUTH_COOKIE_NAME,
-        cookieValue,
-        getAuthCookieOptions(req, expires),
+      setAuthCookies(
+        response,
+        req,
+        await generateAuthCookie(username, user?.role || 'user'),
+        generateAuthMetaCookie(username, user?.role || 'user'),
       );
 
       return withCors(response, req);

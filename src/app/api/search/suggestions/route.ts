@@ -3,7 +3,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 import { AdminConfig } from '@/lib/admin.types';
-import { getAuthInfoFromCookie, verifyApiAuth } from '@/lib/auth';
+import { verifyApiAuth } from '@/lib/auth';
 import { toSimplified } from '@/lib/chinese';
 import { getAvailableApiSites, getConfig } from '@/lib/config';
 import { searchFromApi } from '@/lib/downstream';
@@ -15,15 +15,14 @@ export const dynamic = 'force-dynamic'; // 强制动态渲染，避免构建时�
 export async function GET(request: NextRequest) {
   try {
     // 使用统一的认证函数，支持本地模式和数据库模式
-    const authResult = verifyApiAuth(request);
+    const authResult = await verifyApiAuth(request);
     if (!authResult.isValid) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
     // 获取用户名（本地模式可能没有 username）
-    const authInfo = getAuthInfoFromCookie(request);
     const username =
-      authInfo?.username || (authResult.isLocalMode ? '__local__' : '');
+      authResult.username || (authResult.isLocalMode ? '__local__' : '');
 
     const config = await getConfig();
     const { searchParams } = new URL(request.url);

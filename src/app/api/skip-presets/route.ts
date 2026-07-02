@@ -2,7 +2,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 
-import { getAuthInfoFromCookie, verifyApiAuth } from '@/lib/auth';
+import { verifyApiAuth } from '@/lib/auth';
 import { getConfig } from '@/lib/config';
 import { db } from '@/lib/db';
 import type { SkipPreset } from '@/lib/types';
@@ -54,18 +54,15 @@ function normalizePreset(preset: unknown): SkipPreset | null {
 async function ensureAuthorized(
   request: NextRequest,
 ): Promise<{ username: string } | { error: NextResponse }> {
-  const authResult = verifyApiAuth(request);
+  const authResult = await verifyApiAuth(request);
   if (!authResult.isValid) {
     return {
       error: NextResponse.json({ error: '未登录' }, { status: 401 }),
     };
   }
 
-  const authInfo = getAuthInfoFromCookie(request);
   const username =
-    authResult.username ||
-    authInfo?.username ||
-    (authResult.isLocalMode ? '__local__' : '');
+    authResult.username || (authResult.isLocalMode ? '__local__' : '');
 
   if (!username) {
     return {

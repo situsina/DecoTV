@@ -12,6 +12,7 @@ import { verifyApiAuth } from '@/lib/auth';
 import { configSelfCheck } from '@/lib/config';
 import { SimpleCrypto } from '@/lib/crypto';
 import { db } from '@/lib/db';
+import { isStoredPasswordHash } from '@/lib/password';
 
 export const runtime = 'nodejs';
 
@@ -270,7 +271,7 @@ async function importUserData(users: ImportedUserData[]): Promise<void> {
   for (const user of users) {
     await db.registerUser(user.username, user.password);
 
-    const authOk = await db.verifyUser(user.username, user.password);
+    const authOk = await verifyImportedUserPassword(user);
     if (!authOk) {
       throw new Error(`用户 ${user.username} 密码写入后校验失败`);
     }
@@ -296,6 +297,16 @@ async function importUserData(users: ImportedUserData[]): Promise<void> {
   }
 }
 
+async function verifyImportedUserPassword(
+  user: ImportedUserData,
+): Promise<boolean> {
+  if (isStoredPasswordHash(user.password)) {
+    return (await readStoredPassword(user.username)) === user.password;
+  }
+
+  return db.verifyUser(user.username, user.password);
+}
+
 async function verifyImportedAuthData(
   users: ImportedUserData[],
 ): Promise<void> {
@@ -308,7 +319,7 @@ async function verifyImportedAuthData(
       continue;
     }
 
-    const passwordValid = await db.verifyUser(user.username, user.password);
+    const passwordValid = await verifyImportedUserPassword(user);
     if (!passwordValid) {
       failures.push(`${user.username}: 密码校验失败`);
     }
@@ -346,7 +357,7 @@ async function restoreSnapshot(snapshot: DataSnapshot): Promise<void> {
 
 export async function POST(req: NextRequest) {
   try {
-    const authResult = verifyApiAuth(req);
+    const authResult = await verifyApiAuth(req);
 
     if (authResult.isLocalMode) {
       return NextResponse.json(

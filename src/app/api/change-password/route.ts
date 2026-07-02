@@ -2,7 +2,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 
-import { getAuthInfoFromCookie } from '@/lib/auth';
+import { verifyApiAuth } from '@/lib/auth';
 import { db } from '@/lib/db';
 
 export const runtime = 'nodejs';
@@ -25,8 +25,8 @@ export async function POST(request: NextRequest) {
     const { newPassword } = body;
 
     // 获取认证信息
-    const authInfo = getAuthInfoFromCookie(request);
-    if (!authInfo || !authInfo.username) {
+    const authResult = await verifyApiAuth(request);
+    if (!authResult.isValid || !authResult.username) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
@@ -35,7 +35,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: '新密码不得为空' }, { status: 400 });
     }
 
-    const username = authInfo.username;
+    const username = authResult.username;
 
     // 不允许站长修改密码（站长用户名等于 process.env.USERNAME）
     if (username === process.env.USERNAME) {
