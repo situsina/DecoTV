@@ -25,18 +25,30 @@ export async function GET() {
         source: freshJar.source,
         size: freshJar.size,
         md5: freshJar.md5,
+        sha256: freshJar.sha256,
         tried_sources: freshJar.tried,
         is_fallback: freshJar.source === 'fallback',
+        hash_verified: freshJar.hashVerified,
+        remote_enabled: freshJar.remoteEnabled,
+        security_mode: freshJar.securityMode,
       },
       recommendations: [] as string[],
     };
 
     // 提供诊断建议
     if (!freshJar.success) {
-      response.recommendations.push(
-        '所有远程 JAR 源均不可用，正在使用内置备用 JAR',
-      );
-      response.recommendations.push('请检查网络连接或尝试切换网络环境');
+      if (freshJar.securityMode === 'fallback-only') {
+        response.recommendations.push(
+          '远程 JAR 默认禁用，正在使用内置备用 JAR',
+        );
+        response.recommendations.push(
+          '如需远程 JAR，请配置 ALLOW_REMOTE_SPIDER_JAR、SPIDER_JAR_URLS 和 SPIDER_JAR_SHA256',
+        );
+      } else {
+        response.recommendations.push(
+          '已启用远程 JAR，但所有候选源均不可用或 SHA-256 不匹配，正在使用内置备用 JAR',
+        );
+      }
     } else if (freshJar.tried > 3) {
       response.recommendations.push(
         '多个 JAR 源失败后才成功，建议检查网络稳定性',
@@ -81,7 +93,11 @@ export async function POST() {
         source: refreshedJar.source,
         size: refreshedJar.size,
         md5: refreshedJar.md5,
+        sha256: refreshedJar.sha256,
         tried_sources: refreshedJar.tried,
+        hash_verified: refreshedJar.hashVerified,
+        remote_enabled: refreshedJar.remoteEnabled,
+        security_mode: refreshedJar.securityMode,
       },
       timestamp: Date.now(),
     });
