@@ -1,3 +1,17 @@
+/*
+ * Proxy target validation helpers.
+ *
+ * Threat model: validateProxyTargetUrl blocks localhost, private/link-local
+ * ranges, and cloud metadata hosts, and fetchWithValidatedRedirects
+ * re-validates every redirect hop before following it. This significantly
+ * reduces SSRF exposure, but it validates DNS answers at check time without
+ * pinning the resolved IP to the actual socket connection. A hostile
+ * authoritative DNS server that flips answers between validation and connect
+ * (DNS rebinding) is therefore mitigated on a best-effort basis, not fully
+ * eliminated. Routes built on these helpers should not be treated as a hard
+ * security boundary for internal networks; keep sensitive internal services
+ * off the deployment's network or behind their own authentication.
+ */
 import { lookup } from 'node:dns/promises';
 import { isIP } from 'node:net';
 
@@ -115,7 +129,10 @@ interface PrivateHostAllowlist {
   ipv4Cidrs: Array<{ base: number; mask: number }>;
 }
 
-function parseAllowlistToken(rawToken: string, allowlist: PrivateHostAllowlist) {
+function parseAllowlistToken(
+  rawToken: string,
+  allowlist: PrivateHostAllowlist,
+) {
   const trimmed = rawToken.trim();
   if (!trimmed) return;
 
@@ -132,7 +149,12 @@ function parseAllowlistToken(rawToken: string, allowlist: PrivateHostAllowlist) 
   if (cidrMatch) {
     const base = ipv4ToNumber(cidrMatch[1]);
     const prefix = Number(cidrMatch[2]);
-    if (base !== null && Number.isInteger(prefix) && prefix >= 0 && prefix <= 32) {
+    if (
+      base !== null &&
+      Number.isInteger(prefix) &&
+      prefix >= 0 &&
+      prefix <= 32
+    ) {
       const mask = prefix === 0 ? 0 : (0xffffffff << (32 - prefix)) >>> 0;
       allowlist.ipv4Cidrs.push({ base: base & mask, mask });
     }
@@ -256,10 +278,7 @@ export async function validateProxyTargetUrl(rawUrl: string): Promise<string> {
     records.some(
       (record) =>
         isBlockedAddress(record.address) &&
-        !isBlockedAddressAllowed(
-          record.address,
-          privateHostAllowlist,
-        ),
+        !isBlockedAddressAllowed(record.address, privateHostAllowlist),
     )
   ) {
     throw new Error('Host resolves to a blocked IP address');

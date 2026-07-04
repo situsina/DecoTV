@@ -530,8 +530,12 @@ function speedFromBytes(
   loadedBytes: number,
   elapsedMs: number,
 ): number | undefined {
-  if (loadedBytes <= 0 || elapsedMs <= 0) return undefined;
-  return loadedBytes / 1024 / (elapsedMs / 1000);
+  if (loadedBytes <= 0) return undefined;
+  // Sub-millisecond reads (small probes, warm caches, mocked fetches in
+  // tests) can report elapsedMs === 0; clamp to 1ms so a successful read
+  // always yields a finite speed instead of undefined.
+  const effectiveElapsedMs = Math.max(elapsedMs, 1);
+  return loadedBytes / 1024 / (effectiveElapsedMs / 1000);
 }
 
 async function probeMediaBytes(

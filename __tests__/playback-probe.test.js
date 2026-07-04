@@ -151,6 +151,39 @@ describe('playback probe fetch retries', () => {
       ),
     ).toBe(true);
   });
+
+  it('reports a positive speed when the probe read finishes within one millisecond', async () => {
+    const nowSpy = jest.spyOn(Date, 'now').mockReturnValue(1720000000000);
+
+    try {
+      fetchWithValidatedRedirects.mockImplementation(() =>
+        Promise.resolve(
+          bytesResponse(64 * 1024, {
+            url: 'https://cdn.example.com/movie/file.mp4',
+            contentType: 'video/mp4',
+          }),
+        ),
+      );
+
+      const result = await probePlaybackUrl(
+        'https://cdn.example.com/movie/file.mp4',
+        {
+          request: requestLike('https://tv.example.com/api/playback/probe', {
+            host: 'tv.example.com',
+            'user-agent': 'Mozilla/5.0 test browser',
+          }),
+          timeoutMs: 8000,
+          mediaType: 'file',
+        },
+      );
+
+      expect(result.status).toBe('ok');
+      expect(result.speedKBps).toBeGreaterThan(0);
+      expect(Number.isFinite(result.speedKBps)).toBe(true);
+    } finally {
+      nowSpy.mockRestore();
+    }
+  });
 });
 
 describe('playback probe playlist inspection', () => {
