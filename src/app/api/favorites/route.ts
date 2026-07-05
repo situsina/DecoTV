@@ -2,7 +2,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 
-import { getAuthInfoFromCookie, verifyApiAuth } from '@/lib/auth';
+import { verifyApiAuth } from '@/lib/auth';
 import { getConfig } from '@/lib/config';
 import { db } from '@/lib/db';
 import { Favorite } from '@/lib/types';
@@ -13,16 +13,13 @@ export const runtime = 'nodejs';
 async function validateAndGetUsername(
   request: NextRequest,
 ): Promise<{ username: string } | { error: string; status: number }> {
-  const authResult = verifyApiAuth(request);
+  const authResult = await verifyApiAuth(request);
   if (!authResult.isValid) {
     return { error: 'Unauthorized', status: 401 };
   }
 
-  const authInfo = getAuthInfoFromCookie(request);
   const username =
-    authResult.username ||
-    authInfo?.username ||
-    (authResult.isLocalMode ? '__local__' : '');
+    authResult.username || (authResult.isLocalMode ? '__local__' : '');
 
   if (!username) {
     return { error: 'Unauthorized', status: 401 };

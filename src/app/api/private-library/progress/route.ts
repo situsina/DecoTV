@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 
-import { getAuthInfoFromCookie, verifyApiAuth } from '@/lib/auth';
+import { verifyApiAuth } from '@/lib/auth';
 import {
   reportPrivateLibraryProgress,
   toPrivateLibraryErrorMessage,
@@ -24,7 +24,7 @@ function isValidEvent(
 }
 
 export async function POST(request: NextRequest) {
-  const authResult = verifyApiAuth(request);
+  const authResult = await verifyApiAuth(request);
   if (!authResult.isValid) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
@@ -34,9 +34,8 @@ export async function POST(request: NextRequest) {
     const connectorId = (body.connectorId || '').trim();
     const sourceItemId = (body.sourceItemId || '').trim();
     const event = body.event || 'progress';
-    const authInfo = getAuthInfoFromCookie(request);
     const username =
-      authInfo?.username || (authResult.isLocalMode ? '__local__' : '');
+      authResult.username || (authResult.isLocalMode ? '__local__' : '');
 
     if (!username) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });

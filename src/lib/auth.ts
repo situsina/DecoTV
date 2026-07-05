@@ -33,6 +33,7 @@ export function getAuthSecret(): string | null {
 export function getAuthInfoFromCookie(request: NextRequest): {
   password?: string;
   username?: string;
+  role?: 'owner' | 'admin' | 'user' | 'guest';
   signature?: string;
   timestamp?: number;
 } | null {
@@ -83,7 +84,7 @@ export function getAuthInfoFromBrowserCookie(): {
       {} as Record<string, string>,
     );
 
-    const authCookie = cookies['auth'];
+    const authCookie = cookies['auth_meta'] || cookies['auth'];
     if (!authCookie) {
       return null;
     }
@@ -110,13 +111,13 @@ export function getAuthInfoFromBrowserCookie(): {
  * @param request NextRequest 对象
  * @returns 验证结果，包含是否通过、用户名（可选）、角色、是否为站长
  */
-export function verifyApiAuth(request: NextRequest): {
+export async function verifyApiAuth(request: NextRequest): Promise<{
   isValid: boolean;
   username?: string;
   role?: 'owner' | 'admin' | 'user' | 'guest';
   isOwner: boolean;
   isLocalMode: boolean;
-} {
+}> {
   const storageType = process.env.NEXT_PUBLIC_STORAGE_TYPE || 'localstorage';
   const hasRedis = !!(process.env.REDIS_URL || process.env.KV_REST_API_URL);
   const isLocalMode = storageType === 'localstorage' && !hasRedis;
@@ -139,13 +140,29 @@ export function verifyApiAuth(request: NextRequest): {
       // public 模式默认不授予后台权限，继续走原密码/签名校验。
     } else {
       // public 前台 API 使用固定 guest 命名空间，避免写入站长账户。
+      let verifiedUsername: string | undefined;
+      let verifiedRole: 'owner' | 'admin' | 'user' | 'guest' = 'guest';
+
+      if (
+        authInfo?.username &&
+        authInfo.signature &&
+        (await verifyAuthSignature(
+          buildSignedAuthPayload(authInfo.username, authInfo.role || 'user'),
+          authInfo.signature,
+          process.env.PASSWORD || '',
+        ))
+      ) {
+        verifiedUsername = authInfo.username;
+        verifiedRole =
+          (authInfo as { role?: 'owner' | 'admin' | 'user' | 'guest' }).role ||
+          'user';
+      }
+
       return {
         isValid: true,
-        username: authInfo?.username || '__public_guest__',
-        role:
-          (authInfo as { role?: 'owner' | 'admin' | 'user' | 'guest' } | null)
-            ?.role || 'guest',
-        isOwner: false,
+        username: verifiedUsername || '__public_guest__',
+        role: verifiedRole,
+        isOwner: verifiedUsername === process.env.USERNAME,
         isLocalMode,
       };
     }
@@ -164,8 +181,20 @@ export function verifyApiAuth(request: NextRequest): {
       return { isValid: true, role: 'owner', isOwner: true, isLocalMode };
     }
     // 验证密码
-    if (authInfo.password && authInfo.password === envPassword) {
-      return { isValid: true, role: 'owner', isOwner: true, isLocalMode };
+    if (authInfo.username && authInfo.signature) {
+      const role = authInfo.role || 'owner';
+      const isValid = await verifyAuthSignature(
+        buildSignedAuthPayload(authInfo.username, role),
+        authInfo.signature,
+        envPassword,
+      );
+      return {
+        isValid,
+        username: isValid ? authInfo.username : undefined,
+        role: isValid ? 'owner' : undefined,
+        isOwner: isValid,
+        isLocalMode,
+      };
     }
     return { isValid: false, isOwner: false, isLocalMode };
   }
@@ -176,6 +205,15 @@ export function verifyApiAuth(request: NextRequest): {
   }
 
   // 判断是否为站长
+  const validSignature = await verifyAuthSignature(
+    buildSignedAuthPayload(authInfo.username, authInfo.role || 'user'),
+    authInfo.signature,
+    process.env.PASSWORD || '',
+  );
+  if (!validSignature) {
+    return { isValid: false, isOwner: false, isLocalMode };
+  }
+
   const isOwner = authInfo.username === process.env.USERNAME;
 
   return {
@@ -187,4 +225,44 @@ export function verifyApiAuth(request: NextRequest): {
     isOwner,
     isLocalMode,
   };
+}
+
+function buildSignedAuthPayload(
+  username: string,
+  role: 'owner' | 'admin' | 'user' | 'guest',
+): string {
+  return `${username}:${role}`;
+}
+
+async function verifyAuthSignature(
+  payload: string,
+  signature: string,
+  secret: string,
+): Promise<boolean> {
+  if (!secret || !/^[0-9a-f]+$/i.test(signature) || signature.length !== 64) {
+    return false;
+  }
+
+  try {
+    const encoder = new TextEncoder();
+    const key = await crypto.subtle.importKey(
+      'raw',
+      encoder.encode(secret),
+      { name: 'HMAC', hash: 'SHA-256' },
+      false,
+      ['verify'],
+    );
+    const signatureBuffer = new Uint8Array(
+      signature.match(/.{1,2}/g)?.map((byte) => parseInt(byte, 16)) || [],
+    );
+
+    return crypto.subtle.verify(
+      'HMAC',
+      key,
+      signatureBuffer,
+      encoder.encode(payload),
+    );
+  } catch {
+    return false;
+  }
 }

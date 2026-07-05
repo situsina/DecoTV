@@ -92,7 +92,16 @@ export async function proxy(request: NextRequest) {
 
   // localstorage模式：在proxy中完成验证
   if (storageType === 'localstorage') {
-    if (!authInfo.password || authInfo.password !== process.env.PASSWORD) {
+    if (!authInfo.username || !authInfo.signature) {
+      return handleAuthFailure(request, pathname);
+    }
+
+    const isValidSignature = await verifySignature(
+      buildSignedAuthPayload(authInfo.username, authInfo.role || 'owner'),
+      authInfo.signature,
+      process.env.PASSWORD || '',
+    );
+    if (!isValidSignature) {
       return handleAuthFailure(request, pathname);
     }
     return NextResponse.next();
@@ -107,7 +116,7 @@ export async function proxy(request: NextRequest) {
   // 验证签名（如果存在）
   if (authInfo.signature) {
     const isValidSignature = await verifySignature(
-      authInfo.username,
+      buildSignedAuthPayload(authInfo.username, authInfo.role || 'user'),
       authInfo.signature,
       process.env.PASSWORD || '',
     );
@@ -172,14 +181,21 @@ function isPublicModeAllowedPath(pathname: string): boolean {
 }
 
 // 验证签名
+function buildSignedAuthPayload(
+  username: string,
+  role: 'owner' | 'admin' | 'user' | 'guest',
+): string {
+  return `${username}:${role}`;
+}
+
 async function verifySignature(
-  data: string,
+  payload: string,
   signature: string,
   secret: string,
 ): Promise<boolean> {
   const encoder = new TextEncoder();
   const keyData = encoder.encode(secret);
-  const messageData = encoder.encode(data);
+  const messageData = encoder.encode(payload);
 
   try {
     // 导入密钥
